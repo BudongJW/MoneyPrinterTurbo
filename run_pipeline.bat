@@ -1,19 +1,14 @@
 @echo off
-chcp 65001 >nul
-echo ============================================================
-echo   Auto Pipeline: MoneyPrinterTurbo → TikTok Upload
-echo ============================================================
-echo.
-
+chcp 65001 >nul 2>&1
+title Auto Video Pipeline
 cd /d "%~dp0"
 
-:: Activate venv if exists
-if exist "venv\Scripts\activate.bat" (
-    call venv\Scripts\activate.bat
+if exist "venv\Scripts\python.exe" (
+    set "PYTHON=venv\Scripts\python.exe"
+) else (
+    set "PYTHON=python"
 )
 
-:: Run pipeline (optional: pass topic as argument)
-python auto_pipeline.py %*
+%PYTHON% auto_pipeline.py %* 2>nul
 
-echo.
-pause
+exit /b %errorlevel%
