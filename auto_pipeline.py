@@ -154,11 +154,12 @@ def upload_to_tiktok(video_file: Path):
 
 def cleanup_all():
     """Remove all generated files to save disk space."""
-    # Clean MoneyPrinterTurbo task storage
-    storage_dir = TURBO_DIR / "storage" / "tasks"
-    if storage_dir.exists():
-        shutil.rmtree(storage_dir, ignore_errors=True)
-        storage_dir.mkdir(parents=True, exist_ok=True)
+    # Clean MoneyPrinterTurbo task storage + cache videos
+    for subdir in ("tasks", "cache_videos"):
+        d = TURBO_DIR / "storage" / subdir
+        if d.exists():
+            shutil.rmtree(d, ignore_errors=True)
+            d.mkdir(parents=True, exist_ok=True)
 
     # Clean uploaded videos from social-auto-upload
     videos_dir = UPLOAD_DIR / "videos"
