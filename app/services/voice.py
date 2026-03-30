@@ -8,7 +8,56 @@ from xml.sax.saxutils import unescape
 import edge_tts
 import requests
 from edge_tts import SubMaker, submaker
-from edge_tts.submaker import mktimestamp
+
+# edge-tts 7.x compatibility layer
+_EDGE_TTS_V7 = not hasattr(SubMaker(), "subs")
+
+try:
+    from edge_tts.submaker import mktimestamp
+except ImportError:
+    def mktimestamp(time_unit: float) -> str:
+        hour = int(time_unit / 10**7 / 3600)
+        minute = int((time_unit / 10**7 / 60) % 60)
+        seconds = (time_unit / 10**7) % 60
+        return f"{hour:02d}:{minute:02d}:{seconds:06.3f}"
+
+
+class CompatSubMaker:
+    """Wrapper around edge_tts.SubMaker that provides a unified interface
+    for both 6.x (.subs/.offset/create_sub) and 7.x (.cues/.feed) APIs."""
+
+    def __init__(self):
+        self._inner = SubMaker()
+        if _EDGE_TTS_V7:
+            self.subs = []
+            self.offset = []
+
+    def create_sub(self, timestamp_pair, text):
+        if _EDGE_TTS_V7:
+            self.subs.append(text)
+            self.offset.append(timestamp_pair)
+        else:
+            self._inner.create_sub(timestamp_pair, text)
+
+    def feed(self, chunk):
+        if _EDGE_TTS_V7:
+            offset = chunk["offset"]
+            duration = chunk["duration"]
+            self.subs.append(chunk["text"])
+            self.offset.append((offset, offset + duration))
+        else:
+            if hasattr(self._inner, "feed"):
+                self._inner.feed(chunk)
+
+    def get_srt(self):
+        return self._inner.get_srt() if not _EDGE_TTS_V7 else None
+
+    def __getattr__(self, name):
+        if name in ("subs", "offset", "_inner"):
+            raise AttributeError(name)
+        if not _EDGE_TTS_V7:
+            return getattr(self._inner, name)
+        raise AttributeError(f"CompatSubMaker has no attribute '{name}'")
 from loguru import logger
 from moviepy.video.tools import subtitles
 from moviepy.audio.io.AudioFileClip import AudioFileClip
@@ -1177,17 +1226,15 @@ def azure_tts_v1(
         try:
             logger.info(f"start, voice name: {voice_name}, try: {i + 1}")
 
-            async def _do() -> SubMaker:
+            async def _do() -> CompatSubMaker:
                 communicate = edge_tts.Communicate(text, voice_name, rate=rate_str)
-                sub_maker = edge_tts.SubMaker()
+                sub_maker = CompatSubMaker()
                 with open(voice_file, "wb") as file:
                     async for chunk in communicate.stream():
                         if chunk["type"] == "audio":
                             file.write(chunk["data"])
-                        elif chunk["type"] == "WordBoundary":
-                            sub_maker.create_sub(
-                                (chunk["offset"], chunk["duration"]), chunk["text"]
-                            )
+                        elif chunk["type"] in ("WordBoundary", "SentenceBoundary"):
+                            sub_maker.feed(chunk)
                 return sub_maker
 
             sub_maker = asyncio.run(_do())
@@ -1266,7 +1313,7 @@ def siliconflow_tts(
                     f.write(response.content)
 
                 # 创建一个空的SubMaker对象
-                sub_maker = SubMaker()
+                sub_maker = CompatSubMaker()
 
                 # 获取音频文件的实际长度
                 try:
@@ -1369,7 +1416,7 @@ def azure_tts_v2(text: str, voice_name: str, voice_file: str) -> Union[SubMaker,
 
             import azure.cognitiveservices.speech as speechsdk
 
-            sub_maker = SubMaker()
+            sub_maker = CompatSubMaker()
 
             def speech_synthesizer_word_boundary_cb(evt: speechsdk.SessionEventArgs):
                 # print('WordBoundary event:')
@@ -1537,7 +1584,7 @@ def gemini_tts(
         logger.info(f"completed, output file: {voice_file}")
         
         # 创建SubMaker对象用于字幕
-        sub_maker = SubMaker()
+        sub_maker = CompatSubMaker()
         audio_duration = len(audio_segment) / 1000.0  # 转换为秒
         
         # 将音频长度转换为100纳秒单位（与edge_tts兼容）
@@ -1691,7 +1738,7 @@ def get_audio_duration( target: Union[str, submaker.SubMaker]) -> float:
     如果是SubMaker对象，则从SubMaker中获取时长
     如果是MP3文件，则从MP3文件中获取时长
     """
-    if isinstance(target, submaker.SubMaker):
+    if isinstance(target, (submaker.SubMaker, CompatSubMaker)):
         return _get_audio_duration_from_submaker(target)
     elif isinstance(target, str) and target.endswith(".mp3"):
         return _get_audio_duration_from_mp3(target)
