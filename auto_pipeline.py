@@ -11,7 +11,7 @@ from pathlib import Path
 
 # Setup paths
 TURBO_DIR = Path(__file__).resolve().parent
-UPLOAD_DIR = Path(r"C:\Users\wodnj\Downloads\social-auto-upload")
+UPLOAD_DIR = Path(os.environ.get("SOCIAL_UPLOAD_DIR", TURBO_DIR.parent / "social-auto-upload"))
 
 sys.path.insert(0, str(TURBO_DIR))
 sys.path.insert(0, str(UPLOAD_DIR))
