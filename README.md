@@ -1,7 +1,7 @@
 # MoneyPrinterTurbo - 자동 숏폼 영상 생성 파이프라인
 
-주제(키워드)만 입력하면 **영상 문안 → 스톡 영상 → TTS 음성 → 자막 → BGM** 을 자동 생성하고,
-TikTok까지 자동 업로드하는 파이프라인.
+주제(키워드)만 입력하면 **영상 문안 → 스톡 영상 → TTS 음성 → BGM** 을 자동 생성하고,
+TikTok까지 자동 업로드한 뒤 **임시 파일을 전부 삭제**하는 완전 자동 파이프라인.
 
 > 원본: [harry0703/MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) (v1.2.6)
 
@@ -153,11 +153,10 @@ asyncio.run(tiktok_setup('cookies/tk_uploader/account.json', handle=True))
 
 ## 실행 방법
 
-### 방법 1. 자동 파이프라인 (영상 생성 + TikTok 업로드)
+### 방법 1. 자동 파이프라인 (영상 생성 + TikTok 업로드 + 자동 정리)
 
 ```bash
 cd MoneyPrinterTurbo
-venv\Scripts\activate
 
 # 랜덤 주제로 실행
 python auto_pipeline.py
@@ -166,7 +165,7 @@ python auto_pipeline.py
 python auto_pipeline.py Why cats make the best pets
 ```
 
-또는 `run_pipeline.bat` 더블클릭.
+또는 **`run_pipeline.bat` 더블클릭** (venv 자동 감지, 완료 후 자동 종료).
 
 ### 방법 2. WebUI (수동, 영상 생성만)
 
@@ -192,20 +191,40 @@ setup_scheduler.bat
 ## 파이프라인 흐름
 
 ```
-auto_pipeline.py
+run_pipeline.bat (또는 python auto_pipeline.py)
   │
-  ├─ [1/3] 영상 생성 (MoneyPrinterTurbo)
+  ├─ [1/3] 영상 생성
   │    ├─ Pollinations AI → 스크립트 생성
-  │    ├─ Pexels API → 스톡 영상 다운로드
+  │    ├─ Pexels API → 스톡 영상 다운로드 (15개 내외)
   │    ├─ Edge TTS → 음성 합성
-  │    └─ MoviePy → 영상 합성 (1080x1920, 9:16)
+  │    └─ MoviePy → 14개 클립 합성 (1080x1920, 9:16)
   │
   ├─ [2/3] 업로드 준비
   │    ├─ 영상 파일 복사 → social-auto-upload/videos/
   │    └─ 메타데이터 .txt 생성 (제목 + 해시태그)
   │
-  └─ [3/3] TikTok 업로드
-       └─ Playwright 헤드리스 → TikTok Studio 자동 업로드
+  ├─ [3/3] TikTok 업로드
+  │    └─ Playwright 헤드리스 → TikTok Studio 자동 업로드
+  │
+  └─ [완료] 자동 정리
+       ├─ storage/tasks/ 삭제 (~50MB)
+       ├─ storage/cache_videos/ 삭제 (~230MB)
+       └─ social-auto-upload/videos/ 삭제 (~20MB)
+```
+
+> 매 실행마다 약 **300MB**의 임시 파일이 자동 정리됩니다.
+
+## 주제 커스터마이징
+
+`auto_pipeline.py`의 `TOPICS` 리스트를 수정하면 원하는 주제로 변경 가능:
+
+```python
+TOPICS = [
+    "Top 5 iconic Kpop dance moves everyone should learn",
+    "Why Korean school uniforms became a global fashion trend",
+    "Best Kpop girl group choreography of 2024",
+    # ... 원하는 주제 추가
+]
 ```
 
 ## 환경변수 (선택)
@@ -224,24 +243,30 @@ auto_pipeline.py
 | TikTok 업로드 실패 | 쿠키 만료 → Step 8 다시 실행 |
 | `ENOENT` 에러 | `conf.py`의 `LOCAL_CHROME_PATH = ""` 확인 |
 | 영상은 생성되지만 업로드 안 됨 | 두 레포가 같은 부모 폴더에 있는지 확인 |
+| 용량이 계속 늘어남 | 파이프라인 완료 시 자동 정리됨. 수동 정리: `storage/` 폴더 삭제 |
 
 ## 수정 사항 (원본 대비)
 
 - **Edge TTS 7.x 호환**: `CompatSubMaker` 래퍼 (6.x/7.x 동시 지원)
 - **VideoTransitionMode None 크래시 수정**
 - **한국어 WebUI 지원** (`webui/i18n/ko.json`)
-- **auto_pipeline.py**: 영상 생성 → TikTok 업로드 통합 스크립트
+- **auto_pipeline.py**: 영상 생성 → TikTok 업로드 → 자동 정리 통합 스크립트
 - **Pollinations AI 연동**: 무료 LLM (API 키 불필요)
 - **UPLOAD_DIR 상대경로**: 하드코딩 → `../social-auto-upload` 기본값
+- **자동 파일 정리**: 업로드 완료 후 tasks + cache_videos + videos 자동 삭제 (~300MB/회)
+- **배치파일 개선**: venv 자동 감지, 깔끔한 출력, 완료 후 자동 종료
 
 ## 디렉토리 구조
 
 ```
 MoneyPrinterTurbo/
-├── auto_pipeline.py       # 자동 파이프라인 (생성→업로드)
-├── run_pipeline.bat       # 실행 배치
+├── auto_pipeline.py       # 자동 파이프라인 (생성→업로드→정리)
+├── run_pipeline.bat       # 실행 배치 (더블클릭)
 ├── setup_scheduler.bat    # 스케줄러 등록 배치
 ├── config.toml            # 설정 파일 (config.example.toml에서 복사)
+├── storage/               # 임시 파일 (파이프라인 완료 시 자동 삭제)
+│   ├── tasks/             # 생성된 영상 + 클립
+│   └── cache_videos/      # Pexels 다운로드 캐시
 ├── app/
 │   └── services/
 │       ├── voice.py       # TTS (Edge TTS 7.x 호환)
