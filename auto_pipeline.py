@@ -152,6 +152,36 @@ def upload_to_tiktok(video_file: Path):
     return True
 
 
+def upload_to_youtube(video_file: Path):
+    """Upload video to YouTube Shorts via social-auto-upload."""
+    import asyncio
+
+    os.chdir(UPLOAD_DIR)
+    from uploader.yt_uploader.main_chrome import youtube_setup, YoutubeVideo
+    from utils.files_times import get_title_and_hashtags
+
+    account_file = UPLOAD_DIR / "cookies" / "yt_uploader" / "account.json"
+
+    if not account_file.exists():
+        log("YouTube cookie not found. Run YouTube login first.", "err")
+        return False
+
+    log("Checking YouTube cookie...", "info")
+    valid = asyncio.run(youtube_setup(account_file, handle=False))
+    if not valid:
+        log("Cookie expired. Re-login required.", "err")
+        return False
+    log("Cookie valid", "ok")
+
+    title, tags = get_title_and_hashtags(str(video_file))
+    log(f"Uploading to YouTube Shorts: {title}", "step")
+
+    app = YoutubeVideo(title, video_file, tags, 0, account_file)
+    asyncio.run(app.main(), debug=False)
+    log("YouTube upload complete", "ok")
+    return True
+
+
 def cleanup_all():
     """Remove all generated files to save disk space."""
     # Clean MoneyPrinterTurbo task storage + cache videos
@@ -200,23 +230,42 @@ def run_pipeline(topic: str = None):
     print()
 
     # Step 3
-    print("  [3/3] TIKTOK UPLOAD")
+    print("  [3/4] TIKTOK UPLOAD")
     print("  " + "-" * 40)
-    success = upload_to_tiktok(video_file)
+    tk_success = upload_to_tiktok(video_file)
     print()
+
+    # Step 4 (optional - only if YouTube cookie exists)
+    yt_cookie = UPLOAD_DIR / "cookies" / "yt_uploader" / "account.json"
+    yt_success = False
+    if yt_cookie.exists():
+        print("  [4/4] YOUTUBE SHORTS UPLOAD")
+        print("  " + "-" * 40)
+        os.chdir(TURBO_DIR)  # reset cwd before YouTube upload
+        yt_success = upload_to_youtube(video_file)
+        print()
+    else:
+        log("YouTube cookie not found, skipping Shorts upload", "info")
+        print()
 
     # Cleanup all temp files
     cleanup_all()
 
+    results = []
+    if tk_success:
+        results.append("TikTok")
+    if yt_success:
+        results.append("YouTube Shorts")
+
     print("  ========================================")
-    if success:
-        log("DONE - Video published to TikTok", "ok")
+    if results:
+        log(f"DONE - Published to {' + '.join(results)}", "ok")
     else:
         log("PARTIAL - Video generated, upload failed", "err")
         log(f"Saved at: {video_file}", "info")
     print("  ========================================")
     print()
-    return success
+    return bool(results)
 
 
 if __name__ == "__main__":
